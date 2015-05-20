@@ -1,5 +1,6 @@
 *.bin
 *.elf
+*.map
 *.b#?
 *.s#?
 *.sublime-project
