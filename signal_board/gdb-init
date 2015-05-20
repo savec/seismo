@@ -1,0 +1,6 @@
+target remote localhost:4242
+file seismo.elf
+load
+mon reset
+break main
+continue

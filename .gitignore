@@ -1,0 +1,8 @@
+*.bin
+*.elf
+*.b#?
+*.s#?
+*.sublime-project
+*.sublime-workspace
+.tags
+.tags_sorted_by_file

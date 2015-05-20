@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project>
+<ProjectName>/home/savec/projects/seismo/signal_board/\signal_board</ProjectName>
+<CMSIS>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/CMSIS</CMSIS>  
+<Toolchain>EWARM</Toolchain>
+<Version>0</Version>
+
+<filestoremove>
+	<file>
+	</file>
+</filestoremove>
+
+<inctoremove>
+	<Aincludes>
+	   <include></include>
+    </Aincludes>
+	<Cincludes>
+    </Cincludes>
+</inctoremove>
+
+
+<configs>
+  <config>
+    <name>signal_board Configuration</name>				
+    <device>STM32F407VGTx</device>		     <debugprobe></debugprobe>
+    <optimization></optimization>
+    <Adefines>
+       <define></define>
+    </Adefines>
+    <UsedFreeRTOS>true</UsedFreeRTOS>
+    <Aincludes>
+		   		<include>$PROJ_DIR$\Inc</include>
+    </Aincludes>
+	<Cdefines>
+       <include></include>
+    </Cdefines>
+	<Cincludes>
+	 <include>Inc</include>
+	   <include>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Inc</include>
+	   <include>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy</include>
+	   <include>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/portable/IAR/ARM_CM4F</include>
+	   <include>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/include</include>
+	   <include>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS</include>
+	   <include>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/CMSIS/Include</include>
+	   <include>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include</include>
+    </Cincludes>
+  </config>
+</configs>
+
+  <group>
+  <name>Middlewares</name>
+	 	<group>
+	 		<name>FreeRTOS</name>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/portable/IAR/ARM_CM4F/port.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/portable/IAR/ARM_CM4F/portasm.s</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/list.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/tasks.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/event_groups.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/queue.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/croutine.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/timers.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/cmsis_os.c</name>
+					</file>
+	    </group>
+  </group> 
+ 
+   <group>
+    <name>Drivers</name> 
+	   <group>
+	 		<name>STM32F4xx_HAL_Driver</name>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma_ex.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c</name>
+					</file>
+					<file>
+						<name>../../../../STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ramfunc.c</name>
+					</file>
+	    </group>
+  </group>   
+  
+  <group>
+  <name>Application</name>
+    <group>
+      <name>User</name>  
+        <file>
+         <name>Src/main.c</name>
+        </file>
+        <file>
+         <name>Src/freertos.c</name>
+        </file>
+        <file>
+         <name>Src/stm32f4xx_it.c</name>
+        </file>
+        <file>
+         <name>Src/stm32f4xx_hal_msp.c</name>
+        </file>
+    </group>
+  </group>
+  
+</Project>
