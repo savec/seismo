@@ -12,15 +12,17 @@ OD=arm-none-eabi-objdump
 #DEFS = -DSTM32F40_41xxx -DUSE_STDPERIPH_DRIVER -DHSE_VALUE=8000000UL
 
 MCU = cortex-m4
-MCFLAGS = 	-ggdb  \
-			-mcpu=$(MCU)  \
-			-mthumb  \
-			-mlittle-endian  \
-			-mfpu=fpv4-sp-d16  \
-			-mfloat-abi=hard  \
-			-mthumb-interwork  \
-			-nostartfiles \
-			-Xlinker -Map=$(PROJECT).map
+	
+MCFLAGS =	-mcpu=$(MCU)  
+MCFLAGS +=	-ggdb 
+MCFLAGS +=	-mthumb  
+MCFLAGS +=	-mlittle-endian  
+MCFLAGS +=	-mfpu=fpv4-sp-d16  
+MCFLAGS +=	-mfloat-abi=hard  
+MCFLAGS +=	-mthumb-interwork  
+# MCFLAGS +=	-nostartfiles 
+MCFLAGS +=	-specs=nosys.specs
+MCFLAGS +=	-Xlinker -Map=$(PROJECT).map
 
 HAL_DIR = $(HOME)/STM32Cube/Repository/STM32Cube_FW_F4_V1.5.0
 CMSIS_DIR = $(HAL_DIR)/Drivers/CMSIS
@@ -50,8 +52,8 @@ INCLUDES = 	-I$(CMSIS_CORE_INC) \
 
 OPTIMIZE = -O0
 
-LDSCRIPT = $(PROJECT_DIR)/stm32f4xx_flash.ld
-
+# LDSCRIPT = $(PROJECT_DIR)/stm32f4xx_flash.ld
+LDSCRIPT = $(PROJECT_DIR)/STM32F407VG_FLASH.ld
 CFLAGS	= $(MCFLAGS)  $(OPTIMIZE)  $(INCLUDES) -Wall -T $(LDSCRIPT) -DSTM32F407xx -DUSE_HAL_DRIVER
 AFLAGS	= $(MCFLAGS) 
 
@@ -91,7 +93,9 @@ APPLICATION_SRC =       $(PROJECT_SRC)/main.c \
 				        $(PROJECT_SRC)/stm32f4xx_hal_msp.c  \
 				        $(PROJECT_SRC)/system_stm32f4xx.c 
 
-STARTUP = $(PROJECT_SRC)/startup_stm32f4xx.s
+# STARTUP = $(PROJECT_SRC)/startup_stm32f4xx.s
+STARTUP = $(PROJECT_SRC)/startup_stm32f407xx.s
+
 
 SRC = $(MIDDLEWARES_SRC) $(DRIVERS_SRC) $(APPLICATION_SRC) $(STARTUP)
 
@@ -109,8 +113,8 @@ burn:
 	@./st-flash write $(TARGET) 0x8000000
 
 debug:
-	@./st-util>/dev/null 2>&1 &
-	@arm-none-eabi-gdb --command=gdb-init
+	openocd -f openocd_stlinkv2.cfg &
+	arm-none-eabi-gdb --quiet -x debug_msc.gdb
 
 clean:
 	@rm -f $(TARGET) $(EXECUTABLE)
