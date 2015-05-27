@@ -53,6 +53,11 @@ UART_HandleTypeDef huart1;
 osThreadId defaultTaskHandle;
 
 /* USER CODE BEGIN PV */
+#define NUM_ELEMENTS(x) (sizeof(x)/sizeof(x[0]))
+#define NUM_ADC_CHANNELS 3
+#define ADC_SAMPLES_PER_FRAME 100
+#define ADC_DATA_BUFFER_SIZE (NUM_ADC_CHANNELS * ADC_SAMPLES_PER_FRAME) 
+static uint16_t adc_data[ADC_DATA_BUFFER_SIZE] __attribute__ ((aligned));
 
 /* USER CODE END PV */
 
@@ -98,8 +103,10 @@ int main(void)
   MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
-  // while(1)
-  //   ;
+
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
+  HAL_TIM_Base_Start(&htim2);
+
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -338,6 +345,10 @@ void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+}
 
 /* USER CODE END 4 */
 
