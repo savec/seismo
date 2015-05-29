@@ -57,7 +57,7 @@ osThreadId defaultTaskHandle;
 #define NUM_ADC_CHANNELS 3
 #define ADC_SAMPLES_PER_FRAME 100
 #define ADC_DATA_BUFFER_SIZE (NUM_ADC_CHANNELS * ADC_SAMPLES_PER_FRAME) 
-static uint16_t adc_data[ADC_DATA_BUFFER_SIZE] __attribute__ ((aligned));
+static uint32_t adc_data[ADC_DATA_BUFFER_SIZE]; //__attribute__ ((aligned));
 
 /* USER CODE END PV */
 
@@ -103,9 +103,9 @@ int main(void)
   MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
-
+  // HAL_ADC_Start_IT(&hadc1);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
-  HAL_TIM_Base_Start(&htim2);
+  HAL_TIM_Base_Start_IT(&htim2);
 
   /* USER CODE END 2 */
 
@@ -204,7 +204,7 @@ void MX_ADC1_Init(void)
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 3;
   hadc1.Init.DMAContinuousRequests = DISABLE;
-  hadc1.Init.EOCSelection = EOC_SINGLE_CONV;
+  hadc1.Init.EOCSelection = EOC_SINGLE_CONV; 
   HAL_ADC_Init(&hadc1);
 
     /**Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time. 
@@ -348,6 +348,19 @@ void MX_GPIO_Init(void)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
+  static int cnt = 1000;
+
+  if(!--cnt) {
+    HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12); 
+    cnt = 1000;
+  }   
+
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+
+  
 }
 
 /* USER CODE END 4 */
@@ -360,7 +373,6 @@ void StartDefaultTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
     osDelay(500);
   }
   /* USER CODE END 5 */ 

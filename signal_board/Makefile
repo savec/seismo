@@ -105,7 +105,7 @@ $(TARGET): $(EXECUTABLE)
 	$(CP) -O binary $^ $@
 
 $(EXECUTABLE): $(SRC)
-	$(CC) $(CFLAGS) $^ -o $@
+	@$(CC) $(CFLAGS) $^ -o $@
 
 .PHONY: clean burn debug
 
