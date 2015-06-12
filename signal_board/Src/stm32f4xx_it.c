@@ -35,7 +35,7 @@
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx.h"
 #include "stm32f4xx_it.h"
-#include "cmsis_os.h"
+#include <FreeRTOS.h>
 
 /* USER CODE BEGIN 0 */
 
@@ -58,7 +58,7 @@ extern ADC_HandleTypeDef hadc1;
 void SysTick_Handler(void)
 {
   HAL_IncTick();
-  osSystickHandler();
+  xPortSysTickHandler();
 }
 
 /******************************************************************************/

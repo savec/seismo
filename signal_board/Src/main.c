@@ -34,7 +34,8 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
-#include "cmsis_os.h"
+#include <FreeRTOS.h>
+#include "task.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -50,7 +51,7 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
-osThreadId defaultTaskHandle;
+// osThreadId defaultTaskHandle;
 
 /* USER CODE BEGIN PV */
 #define NUM_ELEMENTS(x) (sizeof(x)/sizeof(x[0]))
@@ -59,6 +60,27 @@ osThreadId defaultTaskHandle;
 #define ADC_DATA_BUFFER_SIZE (NUM_ADC_CHANNELS * ADC_SAMPLES_PER_FRAME) 
 static uint32_t adc_data[ADC_DATA_BUFFER_SIZE]; //__attribute__ ((aligned));
 
+#define DP0 GPIO_PIN_8
+#define DP1 GPIO_PIN_9
+#define DP2 GPIO_PIN_10
+#define SELECT_DP(m) HAL_GPIO_WritePin(GPIOD, m, GPIO_PIN_RESET) 
+#define UNSELECT_DP() HAL_GPIO_WritePin(GPIOD, DP0|DP1|DP2, GPIO_PIN_SET)
+
+typedef enum {
+  KEY_START = 0,
+  KEY_STOP,
+  MAX_KEY
+} hw_keys_e;
+
+typedef struct {
+  const GPIO_TypeDef* port;
+  const uint16_t pin;
+  BaseType_t was_released;
+  uint32_t debounce_cnt;
+} hw_key_s;
+
+static TaskHandle_t xMainHandle = NULL;
+static TaskHandle_t xKeybHandle = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,9 +91,12 @@ static void MX_ADC1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
-void StartDefaultTask(void const * argument);
+// void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
+static void DP_Set_Value(uint32_t mask, uint8_t val);
+void vMainTask( void * pvParameters );
+void vKeybTask( void * pvParameters );
 
 /* USER CODE END PFP */
 
@@ -103,10 +128,12 @@ int main(void)
   MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
+  UNSELECT_DP();
   // HAL_ADC_Start_IT(&hadc1);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
   HAL_TIM_Base_Start_IT(&htim2);
 
+  DP_Set_Value(DP0|DP1|DP2, 127);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -123,11 +150,16 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+  // osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  // defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  
+  xTaskCreate( vMainTask, "MAIN", configMINIMAL_STACK_SIZE, NULL, 1, &xMainHandle );
+  configASSERT( xMainHandle );  
+  xTaskCreate( vKeybTask, "KEYB", configMINIMAL_STACK_SIZE, NULL, 1, &xKeybHandle );
+  configASSERT( xKeybHandle ); 
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -203,7 +235,7 @@ void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 3;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.EOCSelection = EOC_SINGLE_CONV; 
   HAL_ADC_Init(&hadc1);
 
@@ -239,7 +271,7 @@ void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLED;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLED;
@@ -329,7 +361,7 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PD8 PD9 PD10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_12;
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
@@ -346,14 +378,22 @@ void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+static void DP_Set_Value(uint32_t mask, uint8_t val)
+{
+  SELECT_DP(mask);
+  __attribute__((unused)) HAL_StatusTypeDef st = HAL_SPI_Transmit(&hspi1, &val, 1, 0x1000);
+  UNSELECT_DP();
+}
+
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-  static int cnt = 1000;
+  // static int cnt = 1000;
 
-  if(!--cnt) {
-    HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12); 
-    cnt = 1000;
-  }   
+  // if(!--cnt) {
+    // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9); 
+    // DP_Set_Value(DP0|DP1|DP2, 127);
+    // cnt = 1000;
+  // }   
 
 }
 
@@ -363,20 +403,75 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   
 }
 
+void vMainTask( void * pvParameters )
+{
+  
+  for( ;; )
+  {
+    uint32_t events = 0;
+
+    if(xTaskNotifyWait( 0, -1, &events, pdMS_TO_TICKS(10)) == pdTRUE)
+    {
+      if(events & (1 << KEY_START))
+      {
+        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+      }
+      if(events & (1 << KEY_STOP))
+      {
+        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+      }
+    }
+
+      // vTaskDelay(pdMS_TO_TICKS(100));
+  }
+}
+
+void vKeybTask( void * pvParameters )
+{
+#define KEY_STATE(k) HAL_GPIO_ReadPin((GPIO_TypeDef* )k.port, k.pin)
+
+  static hw_key_s keys[MAX_KEY] = { {GPIOE, GPIO_PIN_2, pdFALSE, 0},
+                                    {GPIOE, GPIO_PIN_3, pdFALSE, 0}};
+  for( ;; )
+  {
+    int i;
+    for(i = 0; i < MAX_KEY; i++)
+    {
+      GPIO_PinState state = KEY_STATE(keys[i]);
+      switch(state)
+      {
+        case GPIO_PIN_SET:
+          keys[i].debounce_cnt = 0;
+          keys[i].was_released = pdTRUE;
+          break;
+        case GPIO_PIN_RESET:
+          if(keys[i].was_released && ++keys[i].debounce_cnt > 10)
+          {
+            keys[i].was_released = pdFALSE;
+            xTaskNotify(xMainHandle, (1 << i), eSetBits);
+          }
+          break;
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
 /* USER CODE END 4 */
 
 /* StartDefaultTask function */
-void StartDefaultTask(void const * argument)
-{
+// void StartDefaultTask(void const * argument)
+// {
 
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(500);
-  }
-  /* USER CODE END 5 */ 
-}
+//   /* USER CODE BEGIN 5 */
+//   /* Infinite loop */
+//   for(;;)
+//   {
+//     osDelay(500);
+//   }
+//   /* USER CODE END 5 */ 
+// }
 
 #ifdef USE_FULL_ASSERT
 

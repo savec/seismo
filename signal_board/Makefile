@@ -32,23 +32,24 @@ CMSIS_CORE_INC_LEGACY = $(CMSIS_CORE_INC)/Legacy
 CMSIS_DEVICE_INC = $(CMSIS_DIR)/Device/ST/STM32F4xx/Include
 PERIPHERAL_INC = $(HAL_DIR)/Drivers/STM32F4xx_HAL_Driver/Inc
 PERIPHERAL_SRC = $(HAL_DIR)/Drivers/STM32F4xx_HAL_Driver/Src
-FREERTOS = $(HAL_DIR)/Middlewares/Third_Party/FreeRTOS
+FREERTOS = $(HOME)/FreeRTOSV8.2.1/FreeRTOS
+# FREERTOS = $(HAL_DIR)/Middlewares/Third_Party/FreeRTOS
 FREERTOS_INC = $(FREERTOS)/Source/include
-FREERTOS_CMSIS = $(FREERTOS)/Source/CMSIS_RTOS
+# FREERTOS_CMSIS = $(FREERTOS)/Source/CMSIS_RTOS
 FREERTOS_PORT = $(FREERTOS)/Source/portable/GCC/ARM_CM4F
 
 PROJECT_DIR = .
 PROJECT_INC = $(PROJECT_DIR)/Inc
 PROJECT_SRC = $(PROJECT_DIR)/Src
 
-INCLUDES = 	-I$(CMSIS_CORE_INC) \
- 			-I$(CMSIS_DEVICE_INC)  \
- 			-I$(CMSIS_DEVICE_INC)  \
- 			-I$(PERIPHERAL_INC)  \
- 			-I$(PROJECT_INC) \
- 			-I$(FREERTOS_INC) \
- 			-I$(FREERTOS_CMSIS) \
- 			-I$(FREERTOS_PORT)
+INCLUDES = 	-I$(CMSIS_CORE_INC) 
+INCLUDES += -I$(CMSIS_DEVICE_INC)  
+INCLUDES += -I$(CMSIS_DEVICE_INC)  
+INCLUDES += -I$(PERIPHERAL_INC)  
+INCLUDES += -I$(PROJECT_INC) 
+INCLUDES += -I$(FREERTOS_INC) 
+# INCLUDES += -I$(FREERTOS_CMSIS) 
+INCLUDES += -I$(FREERTOS_PORT)
 
 OPTIMIZE = -O0
 
@@ -57,15 +58,15 @@ LDSCRIPT = $(PROJECT_DIR)/STM32F407VG_FLASH.ld
 CFLAGS	= $(MCFLAGS)  $(OPTIMIZE)  $(INCLUDES) -Wall -T $(LDSCRIPT) -DSTM32F407xx -DUSE_HAL_DRIVER
 AFLAGS	= $(MCFLAGS) 
 
-MIDDLEWARES_SRC = 		$(FREERTOS)/Source/portable/MemMang/heap_4.c \
-						$(FREERTOS)/Source/list.c \
-						$(FREERTOS)/Source/tasks.c \
-						$(FREERTOS)/Source/event_groups.c \
-						$(FREERTOS)/Source/queue.c \
-						$(FREERTOS)/Source/croutine.c \
-						$(FREERTOS)/Source/timers.c \
-				 	    $(FREERTOS)/Source/CMSIS_RTOS/cmsis_os.c \
-						$(FREERTOS)/Source/portable/GCC/ARM_CM4F/port.c 
+MIDDLEWARES_SRC = 		$(FREERTOS)/Source/portable/MemMang/heap_4.c 
+MIDDLEWARES_SRC +=		$(FREERTOS)/Source/list.c 
+MIDDLEWARES_SRC +=		$(FREERTOS)/Source/tasks.c 
+MIDDLEWARES_SRC +=		$(FREERTOS)/Source/event_groups.c 
+MIDDLEWARES_SRC +=		$(FREERTOS)/Source/queue.c 
+MIDDLEWARES_SRC +=		$(FREERTOS)/Source/croutine.c 
+MIDDLEWARES_SRC +=		$(FREERTOS)/Source/timers.c 
+# MIDDLEWARES_SRC += 	    $(FREERTOS)/Source/CMSIS_RTOS/cmsis_os.c 
+MIDDLEWARES_SRC +=		$(FREERTOS)/Source/portable/GCC/ARM_CM4F/port.c 
 						# $(FREERTOS)/Source/portable/GCC/ARM_CM4F/portasm.s 
 
 DRIVERS_SRC =			$(PERIPHERAL_SRC)/stm32f4xx_hal_flash.c \
@@ -113,7 +114,7 @@ burn:
 	@./st-flash write $(TARGET) 0x8000000
 
 debug:
-	openocd -f openocd_stlinkv2.cfg &
+#	openocd -f openocd_stlinkv2.cfg &
 	arm-none-eabi-gdb --quiet -x debug_msc.gdb
 
 clean:
