@@ -34,11 +34,12 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
-#include <FreeRTOS.h>
-#include "task.h"
 
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include <FreeRTOS.h>
+#include <task.h>
+#include <queue.h>
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -65,9 +66,11 @@ static uint32_t adc_data[ADC_DATA_BUFFER_SIZE]; //__attribute__ ((aligned));
 #define SELECT_DP(m) HAL_GPIO_WritePin(GPIOD, m, GPIO_PIN_RESET) 
 #define UNSELECT_DP() HAL_GPIO_WritePin(GPIOD, DP0|DP1|DP2, GPIO_PIN_SET)
 
+#define UART_TX_COMPLETE_EVT (1ul << 0)
+
 typedef enum {
   KEY_START = 0,
-  KEY_STOP,
+  // KEY_STOP,
   MAX_KEY
 } hw_keys_e;
 
@@ -78,8 +81,41 @@ typedef struct {
   uint32_t debounce_cnt;
 } hw_key_s;
 
+typedef enum {
+  PACKET_CONTROL = 0,
+  PACKET_INDICATION,
+  PACKET_KEYCODE,
+  PACKET_DATA,
+  PACKET_MAX
+} packet_type_e;
+
+#define MAX_PACKET_DATA_SIZE  100
+
+typedef struct __attribute__((packed)) 
+{
+  uint8_t type;
+  uint8_t payload_size;
+} packet_header_s;
+
+typedef struct __attribute__((packed)) 
+{
+  union __attribute__((packed))
+  {
+    uint8_t data[MAX_PACKET_DATA_SIZE];
+  };
+} packet_payload_s;
+
+typedef struct __attribute__((packed)) 
+{
+  packet_header_s h;
+  packet_payload_s p;
+} packet_s;
+
 static TaskHandle_t xMainHandle = NULL;
 static TaskHandle_t xKeybHandle = NULL;
+static TaskHandle_t xUsartTXHandle = NULL;
+
+static QueueHandle_t xUartTxQueue = NULL;
 
 static uint8_t gain = 127;
 
@@ -98,6 +134,8 @@ static void MX_USART1_UART_Init(void);
 static void DP_Set_Value(uint32_t mask, uint8_t val);
 void vMainTask( void * pvParameters );
 void vKeybTask( void * pvParameters );
+void vUartTxTask( void * pvParameters );
+static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t payload_size);
 
 /* USER CODE END PFP */
 
@@ -154,13 +192,19 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   
-  xTaskCreate( vMainTask, "MAIN", configMINIMAL_STACK_SIZE, NULL, 1, &xMainHandle );
+  xTaskCreate( vMainTask, "MAIN", configMINIMAL_STACK_SIZE*4, NULL, 1, &xMainHandle );
   configASSERT( xMainHandle );  
-  xTaskCreate( vKeybTask, "KEYB", configMINIMAL_STACK_SIZE, NULL, 1, &xKeybHandle );
+  xTaskCreate( vKeybTask, "KEYB", configMINIMAL_STACK_SIZE*4, NULL, 2, &xKeybHandle );
   configASSERT( xKeybHandle ); 
+  xTaskCreate( vUartTxTask, "UATX", configMINIMAL_STACK_SIZE*4, NULL, 3, &xUsartTXHandle );
+  configASSERT( xUsartTXHandle );  
+
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
+  xUartTxQueue = xQueueCreate( 5, sizeof( packet_s * ) );
+  configASSERT( xUartTxQueue );  
+
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
  
@@ -354,6 +398,12 @@ void MX_GPIO_Init(void)
   __GPIOB_CLK_ENABLE();
   __GPIOD_CLK_ENABLE();
 
+  /*Configure GPIO pins : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /*Configure GPIO pins : PE2 PE3 */
   GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -361,7 +411,7 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PD8 PD9 PD10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
@@ -385,14 +435,53 @@ static void DP_Set_Value(uint32_t mask, uint8_t val)
   UNSELECT_DP();
 }
 
+static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t payload_size)
+{
+  uint16_t size = sizeof(packet_header_s) + payload_size;
+  packet_s *b = (packet_s *)pvPortMalloc(size);
+
+  configASSERT( b );
+
+  b->h.type = type;
+  b->h.payload_size = payload_size;
+
+  if(payload_size)
+    memcpy(b->p.data, payload, payload_size);
+
+  return xQueueSend( xUartTxQueue, &b, ( TickType_t ) 0 );
+}
+
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  vTaskNotifyGiveFromISR(xUsartTXHandle, NULL);
+}
+
+void vUartTxTask( void * pvParameters )
+{
+  for( ;; )
+  {
+    packet_s * p_packet = NULL;
+    xQueueReceive(xUartTxQueue, &p_packet, portMAX_DELAY);
+    if(p_packet)
+    {
+      uint16_t size = sizeof(packet_header_s) + p_packet->h.payload_size; 
+      HAL_StatusTypeDef st __attribute__((unused)) = 
+        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)p_packet, size);
+      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      vPortFree(p_packet);
+      HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
+      
+    }
+  }
 }
 
 void vMainTask( void * pvParameters )
@@ -406,21 +495,17 @@ void vMainTask( void * pvParameters )
     {
       if(events & (1 << KEY_START))
       {
-        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
         if(gain) {
           DP_Set_Value(DP0|DP1|DP2, --gain);
         }
       }
-      if(events & (1 << KEY_STOP))
-      {
-        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
-        if(gain < 127) {
-          DP_Set_Value(DP0|DP1|DP2, ++gain);
-        }
-      }
+      // if(events & (1 << KEY_STOP))
+      // {
+      //   if(gain < 127) {
+      //     DP_Set_Value(DP0|DP1|DP2, ++gain);
+      //   }
+      // }
     }
-
-      // vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
 
@@ -428,8 +513,10 @@ void vKeybTask( void * pvParameters )
 {
 #define KEY_STATE(k) HAL_GPIO_ReadPin((GPIO_TypeDef* )k.port, k.pin)
 
-  static hw_key_s keys[MAX_KEY] = { {GPIOE, GPIO_PIN_2, pdFALSE, 0},
-                                    {GPIOE, GPIO_PIN_4, pdFALSE, 0}};
+  static hw_key_s keys[MAX_KEY] = { {GPIOA, GPIO_PIN_0, pdFALSE, 0},
+                                    // {GPIOE, GPIO_PIN_2, pdFALSE, 0},
+                                    // {GPIOE, GPIO_PIN_4, pdFALSE, 0}
+                                  };
   for( ;; )
   {
     int i;
@@ -443,10 +530,13 @@ void vKeybTask( void * pvParameters )
           keys[i].was_released = pdTRUE;
           break;
         case GPIO_PIN_RESET:
-          if(keys[i].was_released && ++keys[i].debounce_cnt > 10)
+          if(keys[i].was_released && ++keys[i].debounce_cnt > 5)
           {
+            uint8_t keycode = (1 << i);
             keys[i].was_released = pdFALSE;
-            xTaskNotify(xMainHandle, (1 << i), eSetBits);
+            // xTaskNotify(xMainHandle, (1 << i), eSetBits);
+            send_packet(PACKET_KEYCODE, &keycode, sizeof(keycode));
+            
           }
           break;
       }
