@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * @file    stm32f4xx_it.c
-  * @date    20/05/2015 13:17:13
+  * @date    13/06/2015 14:55:49
   * @brief   Interrupt Service Routines.
   ******************************************************************************
   *
@@ -44,9 +44,9 @@
 /* External variables --------------------------------------------------------*/
 extern void xPortSysTickHandler(void);
 extern DMA_HandleTypeDef hdma_adc1;
-extern TIM_HandleTypeDef htim2;
-extern ADC_HandleTypeDef hadc1;
-
+// extern TIM_HandleTypeDef htim2;
+// extern ADC_HandleTypeDef hadc1;
+extern DMA_HandleTypeDef hdma_usart1_tx;
 
 /******************************************************************************/
 /*            Cortex-M4 Processor Interruption and Exception Handlers         */ 
@@ -82,16 +82,30 @@ void DMA2_Stream0_IRQHandler(void)
   /* USER CODE END DMA2_Stream0_IRQn 1 */
 }
 
+/**
+* @brief This function handles DMA2 Stream7 global interrupt.
+*/
+void DMA2_Stream7_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Stream7_IRQn 0 */
+
+  /* USER CODE END DMA2_Stream7_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart1_tx);
+  /* USER CODE BEGIN DMA2_Stream7_IRQn 1 */
+
+  /* USER CODE END DMA2_Stream7_IRQn 1 */
+}
+
 /* USER CODE BEGIN 1 */
-void TIM2_IRQHandler(void)
-{
-  HAL_TIM_IRQHandler(&htim2);
-}
+// void TIM2_IRQHandler(void)
+// {
+//   HAL_TIM_IRQHandler(&htim2);
+// }
 
 
-void ADC_IRQHandler(void)
-{
-  HAL_ADC_IRQHandler(&hadc1);
-}
+// void ADC_IRQHandler(void)
+// {
+//   HAL_ADC_IRQHandler(&hadc1);
+// }
 /* USER CODE END 1 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

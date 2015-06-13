@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * File Name          : main.c
-  * Date               : 20/05/2015 13:17:14
+  * Date               : 13/06/2015 14:55:49
   * Description        : Main program body
   ******************************************************************************
   *
@@ -50,8 +50,7 @@ SPI_HandleTypeDef hspi1;
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
-
-// osThreadId defaultTaskHandle;
+DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
 #define NUM_ELEMENTS(x) (sizeof(x)/sizeof(x[0]))
@@ -94,7 +93,6 @@ static void MX_ADC1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
-// void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 static void DP_Set_Value(uint32_t mask, uint8_t val);
@@ -134,7 +132,7 @@ int main(void)
   UNSELECT_DP();
   // HAL_ADC_Start_IT(&hadc1);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
-  HAL_TIM_Base_Start_IT(&htim2);
+  HAL_TIM_Base_Start(&htim2);
 
   DP_Set_Value(DP0|DP1|DP2, gain);
   /* USER CODE END 2 */
@@ -153,9 +151,6 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  // osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-  // defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
-
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   
@@ -239,7 +234,7 @@ void MX_ADC1_Init(void)
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 3;
   hadc1.Init.DMAContinuousRequests = ENABLE;
-  hadc1.Init.EOCSelection = EOC_SINGLE_CONV; 
+  hadc1.Init.EOCSelection = EOC_SINGLE_CONV;
   HAL_ADC_Init(&hadc1);
 
     /**Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time. 
@@ -334,6 +329,8 @@ void MX_DMA_Init(void)
   /* DMA interrupt init */
   HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+  HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
 
 }
 
@@ -390,18 +387,12 @@ static void DP_Set_Value(uint32_t mask, uint8_t val)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
- 
+  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 
-}
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-
-  
 }
 
 void vMainTask( void * pvParameters )
@@ -466,19 +457,6 @@ void vKeybTask( void * pvParameters )
 }
 
 /* USER CODE END 4 */
-
-/* StartDefaultTask function */
-// void StartDefaultTask(void const * argument)
-// {
-
-//   /* USER CODE BEGIN 5 */
-//   /* Infinite loop */
-//   for(;;)
-//   {
-//     osDelay(500);
-//   }
-//   /* USER CODE END 5 */ 
-// }
 
 #ifdef USE_FULL_ASSERT
 
