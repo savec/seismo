@@ -81,6 +81,9 @@ typedef struct {
 
 static TaskHandle_t xMainHandle = NULL;
 static TaskHandle_t xKeybHandle = NULL;
+
+static uint8_t gain = 127;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -133,7 +136,7 @@ int main(void)
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
   HAL_TIM_Base_Start_IT(&htim2);
 
-  DP_Set_Value(DP0|DP1|DP2, 127);
+  DP_Set_Value(DP0|DP1|DP2, gain);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -387,13 +390,11 @@ static void DP_Set_Value(uint32_t mask, uint8_t val)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-  // static int cnt = 1000;
+ 
+}
 
-  // if(!--cnt) {
-    // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9); 
-    // DP_Set_Value(DP0|DP1|DP2, 127);
-    // cnt = 1000;
-  // }   
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
+{
 
 }
 
@@ -415,10 +416,16 @@ void vMainTask( void * pvParameters )
       if(events & (1 << KEY_START))
       {
         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+        if(gain) {
+          DP_Set_Value(DP0|DP1|DP2, --gain);
+        }
       }
       if(events & (1 << KEY_STOP))
       {
         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+        if(gain < 127) {
+          DP_Set_Value(DP0|DP1|DP2, ++gain);
+        }
       }
     }
 
@@ -431,7 +438,7 @@ void vKeybTask( void * pvParameters )
 #define KEY_STATE(k) HAL_GPIO_ReadPin((GPIO_TypeDef* )k.port, k.pin)
 
   static hw_key_s keys[MAX_KEY] = { {GPIOE, GPIO_PIN_2, pdFALSE, 0},
-                                    {GPIOE, GPIO_PIN_3, pdFALSE, 0}};
+                                    {GPIOE, GPIO_PIN_4, pdFALSE, 0}};
   for( ;; )
   {
     int i;
