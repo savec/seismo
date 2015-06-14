@@ -490,8 +490,39 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   HAL_UART_Receive_IT(&huart1, &uart_data, 1);
 }
 
+static size_t unstuff_packet(packet_s *p, const uint8_t *s, size_t size)
+{
+  uint8_t *out = (uint8_t *)p;
+  uint8_t *in = (uint8_t *)s + 1;
+
+  if(size <= 2)
+    return 0;
+
+  int sz = size -= 2; // -(start + stop)
+  
+  for(; sz > 0; sz--, in++, out++)
+  {
+    *out = *in;
+    if(*in == START_BYTE || *in == STOP_BYTE)
+    {
+      in++;
+      if(*in !=  START_BYTE && *in != STOP_BYTE)
+        return 0; // packet corrupted
+      sz--;
+    }
+  }
+
+  return (size_t)(out - (uint8_t *)p);
+}
 static void process_packet(const uint8_t *p, size_t size)
 {
+  static packet_s packet;
+  size_t sz = unstuff_packet(&packet, p, size);
+
+  if(sz == 0)
+    return; // packet corrupted
+
+  
 
 
 }
@@ -556,15 +587,19 @@ void vUartRxTask( void * pvParameters )
     case PREVIOUS_WAS_STOP:
       if(status == pdTRUE)
       {
-        if(data == START_BYTE)
+        if(data != STOP_BYTE)
         {
-          state = PREVIOUS_WAS_START;
           process_packet(rx_buffer, packet_len);
           RESET_RX_MACHINE;
-          
-        } 
-        rx_buffer[packet_len++] = data;
-        state = PREVIOUS_WAS_TRIVIAL;
+          if(data == START_BYTE)
+          {
+            rx_buffer[packet_len++] = data;
+            state = PREVIOUS_WAS_TRIVIAL;            
+          }
+        } else {
+          rx_buffer[packet_len++] = data;
+          state = PREVIOUS_WAS_TRIVIAL;
+        }
       } else {
         process_packet(rx_buffer, packet_len);
         RESET_RX_MACHINE;
@@ -587,9 +622,9 @@ static size_t stuff_packet(const packet_s *p, uint8_t *s, size_t size)
   {
     *out = *in;
     if(*in == START_BYTE)
-      *out++ = START_BYTE;
+      *++out = START_BYTE;
     else if(*in == STOP_BYTE)
-      *out++ = STOP_BYTE;
+      *++out = STOP_BYTE;
   }
   *out++ = STOP_BYTE;
 
@@ -669,8 +704,10 @@ void vKeybTask( void * pvParameters )
           {
             uint8_t keycode = (1 << i);
             keys[i].was_released = pdFALSE;
+
+            uint8_t buf[] = {0xab, 0xab, 0x01, 0xba, 0xad, 0xba};
             // xTaskNotify(xMainHandle, (1 << i), eSetBits);
-            send_packet(PACKET_KEYCODE, &keycode, sizeof(keycode));
+            send_packet(PACKET_KEYCODE, buf, sizeof(buf));
             
           }
           break;
