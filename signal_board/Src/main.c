@@ -40,6 +40,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <queue.h>
+#include <arm_math.h>
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -57,8 +58,8 @@ DMA_HandleTypeDef hdma_usart1_tx;
 #define NUM_ELEMENTS(x) (sizeof(x)/sizeof(x[0]))
 #define NUM_ADC_CHANNELS 3
 #define ADC_SAMPLES_PER_FRAME 100
-#define ADC_DATA_BUFFER_SIZE (NUM_ADC_CHANNELS * ADC_SAMPLES_PER_FRAME) 
-static uint32_t adc_data[ADC_DATA_BUFFER_SIZE]; //__attribute__ ((aligned));
+#define ADC_DATA_BUFFER_SIZE (NUM_ADC_CHANNELS * ADC_SAMPLES_PER_FRAME * 2) 
+static uint16_t adc_data[ADC_DATA_BUFFER_SIZE] __attribute__ ((aligned));
 
 #define DP0 GPIO_PIN_8
 #define DP1 GPIO_PIN_9
@@ -118,6 +119,7 @@ static TaskHandle_t xMainHandle = NULL;
 static TaskHandle_t xKeybHandle = NULL;
 static TaskHandle_t xUsartTXHandle = NULL;
 static TaskHandle_t xUsartRXHandle = NULL;
+static TaskHandle_t xDSPHandle = NULL;
 
 static QueueHandle_t xUartTxQueue = NULL;
 static QueueHandle_t xUartRxQueue = NULL;
@@ -142,6 +144,7 @@ void vMainTask( void * pvParameters );
 void vKeybTask( void * pvParameters );
 void vUartTxTask( void * pvParameters );
 void vUartRxTask( void * pvParameters );
+void vDSPTask( void * pvParameters );
 static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t payload_size);
 
 /* USER CODE END PFP */
@@ -204,10 +207,12 @@ int main(void)
   configASSERT( xMainHandle );  
   xTaskCreate( vKeybTask, "KEYB", configMINIMAL_STACK_SIZE*2, NULL, 2, &xKeybHandle );
   configASSERT( xKeybHandle ); 
-  xTaskCreate( vUartTxTask, "UATX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartTXHandle );
+  xTaskCreate( vUartTxTask, "UARTTX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartTXHandle );
   configASSERT( xUsartTXHandle );  
-  xTaskCreate( vUartRxTask, "UARX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartRXHandle );
+  xTaskCreate( vUartRxTask, "UARTRX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartRXHandle );
   configASSERT( xUsartRXHandle );  
+  xTaskCreate( vDSPTask, "DSP", configMINIMAL_STACK_SIZE*2, NULL, 3, &xDSPHandle );
+  configASSERT( xDSPHandle );  
 
   /* USER CODE END RTOS_THREADS */
 
@@ -471,18 +476,21 @@ static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t p
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
+  xTaskNotifyFromISR(xDSPHandle, (uint32_t)(&adc_data[NUM_ELEMENTS(adc_data)/2]), 
+    eSetValueWithOverwrite, NULL);
+  // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
-
+  xTaskNotifyFromISR(xDSPHandle, (uint32_t)(&adc_data[0]), eSetValueWithOverwrite, 
+    NULL);
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
   vTaskNotifyGiveFromISR(xUsartTXHandle, NULL);
 }
-
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -514,17 +522,48 @@ static size_t unstuff_packet(packet_s *p, const uint8_t *s, size_t size)
 
   return (size_t)(out - (uint8_t *)p);
 }
+
+void vDSPTask( void * pvParameters )
+{
+  typedef struct __attribute__((packed))
+  {
+    uint16_t channel[NUM_ADC_CHANNELS];
+  } adc_samples_s;
+#define EXTRACT_CHANNEL_DATA(from, to, ch) do { int k; \
+                                                adc_samples_s * samples = (adc_samples_s *)from; \
+                                                for(k = 0; k < ADC_SAMPLES_PER_FRAME; k++) { \
+                                                  to[k] = samples[k].channel[ch]; } \
+                                              } while(0)
+  for( ;; )
+  {
+    uint16_t *data __attribute__((aligned));
+    xTaskNotifyWait( 0, -1, (uint32_t *)&data, portMAX_DELAY);
+    
+
+    int i;
+    for(i = 0; i < NUM_ADC_CHANNELS; i++)
+    {
+      static uint16_t ch_data[ADC_SAMPLES_PER_FRAME];
+      EXTRACT_CHANNEL_DATA(data, ch_data, i);
+
+
+
+      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+
+    }
+
+  }
+}
+
 static void process_packet(const uint8_t *p, size_t size)
 {
   static packet_s packet;
   size_t sz = unstuff_packet(&packet, p, size);
 
-  if(sz == 0)
-    return; // packet corrupted
+  if(sz)
+  {
 
-  
-
-
+  }
 }
 
 void vUartRxTask( void * pvParameters )
