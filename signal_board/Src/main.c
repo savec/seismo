@@ -66,11 +66,14 @@ static uint32_t adc_data[ADC_DATA_BUFFER_SIZE]; //__attribute__ ((aligned));
 #define SELECT_DP(m) HAL_GPIO_WritePin(GPIOD, m, GPIO_PIN_RESET) 
 #define UNSELECT_DP() HAL_GPIO_WritePin(GPIOD, DP0|DP1|DP2, GPIO_PIN_SET)
 
-#define UART_TX_COMPLETE_EVT (1ul << 0)
+// #define UART_TX_COMPLETE_EVT (1ul << 0)
+#define START_BYTE  0xAB
+#define STOP_BYTE  0xBA
+
 
 typedef enum {
   KEY_START = 0,
-  // KEY_STOP,
+  KEY_STOP,
   MAX_KEY
 } hw_keys_e;
 
@@ -114,10 +117,13 @@ typedef struct __attribute__((packed))
 static TaskHandle_t xMainHandle = NULL;
 static TaskHandle_t xKeybHandle = NULL;
 static TaskHandle_t xUsartTXHandle = NULL;
+static TaskHandle_t xUsartRXHandle = NULL;
 
 static QueueHandle_t xUartTxQueue = NULL;
+static QueueHandle_t xUartRxQueue = NULL;
 
 static uint8_t gain = 127;
+static uint8_t uart_data;
 
 /* USER CODE END PV */
 
@@ -135,6 +141,7 @@ static void DP_Set_Value(uint32_t mask, uint8_t val);
 void vMainTask( void * pvParameters );
 void vKeybTask( void * pvParameters );
 void vUartTxTask( void * pvParameters );
+void vUartRxTask( void * pvParameters );
 static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t payload_size);
 
 /* USER CODE END PFP */
@@ -173,6 +180,7 @@ int main(void)
   HAL_TIM_Base_Start(&htim2);
 
   DP_Set_Value(DP0|DP1|DP2, gain);
+
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -192,18 +200,27 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   
-  xTaskCreate( vMainTask, "MAIN", configMINIMAL_STACK_SIZE*4, NULL, 1, &xMainHandle );
+  xTaskCreate( vMainTask, "MAIN", configMINIMAL_STACK_SIZE*2, NULL, 1, &xMainHandle );
   configASSERT( xMainHandle );  
-  xTaskCreate( vKeybTask, "KEYB", configMINIMAL_STACK_SIZE*4, NULL, 2, &xKeybHandle );
+  xTaskCreate( vKeybTask, "KEYB", configMINIMAL_STACK_SIZE*2, NULL, 2, &xKeybHandle );
   configASSERT( xKeybHandle ); 
-  xTaskCreate( vUartTxTask, "UATX", configMINIMAL_STACK_SIZE*4, NULL, 3, &xUsartTXHandle );
+  xTaskCreate( vUartTxTask, "UATX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartTXHandle );
   configASSERT( xUsartTXHandle );  
+  xTaskCreate( vUartRxTask, "UARX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartRXHandle );
+  configASSERT( xUsartRXHandle );  
 
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
   xUartTxQueue = xQueueCreate( 5, sizeof( packet_s * ) );
   configASSERT( xUartTxQueue );  
+  xUartRxQueue = xQueueCreate( 10, sizeof( uint8_t ) );
+  configASSERT( xUartRxQueue );  
+
+
+
+
+  HAL_UART_Receive_IT(&huart1, &uart_data, 1);
 
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -398,11 +415,11 @@ void MX_GPIO_Init(void)
   __GPIOB_CLK_ENABLE();
   __GPIOD_CLK_ENABLE();
 
-  /*Configure GPIO pins : PA0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  // /*Configure GPIO pins : PA0 */
+  // GPIO_InitStruct.Pin = GPIO_PIN_0;
+  // GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  // GPIO_InitStruct.Pull = GPIO_NOPULL;
+  // HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PE2 PE3 */
   GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
@@ -411,7 +428,8 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PD8 PD9 PD10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_12;
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
+  // |GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
@@ -465,6 +483,119 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
   vTaskNotifyGiveFromISR(xUsartTXHandle, NULL);
 }
 
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  xQueueSendFromISR( xUartRxQueue, &uart_data, NULL);
+  HAL_UART_Receive_IT(&huart1, &uart_data, 1);
+}
+
+static void process_packet(const uint8_t *p, size_t size)
+{
+
+
+}
+
+void vUartRxTask( void * pvParameters )
+{
+  enum reciever_state_e {
+    WAIT_FOR_START_SYNC,
+    PREVIOUS_WAS_START,
+    PREVIOUS_WAS_TRIVIAL,
+    PREVIOUS_WAS_STOP,
+    MAX_STATE
+  } state = WAIT_FOR_START_SYNC;
+  size_t packet_len = 0;
+  static uint8_t rx_buffer[(MAX_PACKET_DATA_SIZE + sizeof(packet_header_s))*2+2];
+
+#define RESET_RX_MACHINE  do {state = WAIT_FOR_START_SYNC; packet_len = 0;} while(0)
+
+  for( ;; )
+  {
+    uint8_t data;
+    BaseType_t status = xQueueReceive(xUartRxQueue, &data, pdMS_TO_TICKS(10));
+
+    switch(state)
+    {
+    case WAIT_FOR_START_SYNC:
+      if(status == pdTRUE && data == START_BYTE)
+      {
+        rx_buffer[packet_len++] = data;
+        state = PREVIOUS_WAS_TRIVIAL;
+      }
+      break;
+
+    case PREVIOUS_WAS_START:
+      if(status == pdTRUE)
+      {
+        rx_buffer[packet_len++] = data;
+        if(data == STOP_BYTE)
+          state = PREVIOUS_WAS_STOP;
+        else  // start || trivial
+          state = PREVIOUS_WAS_TRIVIAL;
+      } else {
+        RESET_RX_MACHINE;
+      }
+      break;
+
+    case PREVIOUS_WAS_TRIVIAL:
+      if(status == pdTRUE)
+      {
+        rx_buffer[packet_len++] = data;
+        if(data == START_BYTE)
+          state = PREVIOUS_WAS_START;
+        else if(data == STOP_BYTE)
+          state = PREVIOUS_WAS_STOP;
+        else
+          state = PREVIOUS_WAS_TRIVIAL;
+      } else {
+        RESET_RX_MACHINE;
+      }
+      break;
+
+    case PREVIOUS_WAS_STOP:
+      if(status == pdTRUE)
+      {
+        if(data == START_BYTE)
+        {
+          state = PREVIOUS_WAS_START;
+          process_packet(rx_buffer, packet_len);
+          RESET_RX_MACHINE;
+          
+        } 
+        rx_buffer[packet_len++] = data;
+        state = PREVIOUS_WAS_TRIVIAL;
+      } else {
+        process_packet(rx_buffer, packet_len);
+        RESET_RX_MACHINE;
+      }
+      break;     
+    default:
+      ; 
+    }
+
+  }
+}
+
+static size_t stuff_packet(const packet_s *p, uint8_t *s, size_t size)
+{
+  uint8_t *in = (uint8_t *)p;
+  uint8_t *out = s;
+
+  *out++ = START_BYTE;
+  for(; size; size--, in++, out++)
+  {
+    *out = *in;
+    if(*in == START_BYTE)
+      *out++ = START_BYTE;
+    else if(*in == STOP_BYTE)
+      *out++ = STOP_BYTE;
+  }
+  *out++ = STOP_BYTE;
+
+  return (size_t)(out - s);
+}
+
 void vUartTxTask( void * pvParameters )
 {
   for( ;; )
@@ -473,13 +604,16 @@ void vUartTxTask( void * pvParameters )
     xQueueReceive(xUartTxQueue, &p_packet, portMAX_DELAY);
     if(p_packet)
     {
-      uint16_t size = sizeof(packet_header_s) + p_packet->h.payload_size; 
-      HAL_StatusTypeDef st __attribute__((unused)) = 
-        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)p_packet, size);
-      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      uint8_t packet_size = sizeof(packet_header_s) + p_packet->h.payload_size;
+      uint8_t *b = (uint8_t *)pvPortMalloc((packet_size)*2 + 2);
+      configASSERT( b );
+      size_t tx_size = stuff_packet(p_packet, b, packet_size);
       vPortFree(p_packet);
-      HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_12);
-      
+      HAL_StatusTypeDef st __attribute__((unused)) = 
+        HAL_UART_Transmit_DMA(&huart1, b, tx_size);
+      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      vPortFree(b);
+      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
     }
   }
 }
@@ -513,9 +647,10 @@ void vKeybTask( void * pvParameters )
 {
 #define KEY_STATE(k) HAL_GPIO_ReadPin((GPIO_TypeDef* )k.port, k.pin)
 
-  static hw_key_s keys[MAX_KEY] = { {GPIOA, GPIO_PIN_0, pdFALSE, 0},
-                                    // {GPIOE, GPIO_PIN_2, pdFALSE, 0},
-                                    // {GPIOE, GPIO_PIN_4, pdFALSE, 0}
+  static hw_key_s keys[MAX_KEY] = { 
+                                   // {GPIOA, GPIO_PIN_0, pdFALSE, 0},
+                                    {GPIOE, GPIO_PIN_2, pdFALSE, 0},
+                                    {GPIOE, GPIO_PIN_4, pdFALSE, 0}
                                   };
   for( ;; )
   {
