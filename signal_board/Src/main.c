@@ -40,6 +40,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <queue.h>
+#include <semphr.h>
 #include <arm_math.h>
 /* USER CODE END Includes */
 
@@ -85,11 +86,17 @@ typedef struct {
   uint32_t debounce_cnt;
 } hw_key_s;
 
+typedef struct __attribute__((packed))
+{
+  uint8_t gain;
+} config_s;
+
 typedef enum {
-  PACKET_CONTROL = 0,
-  PACKET_INDICATION,
+  PACKET_HANDSHAKE = 0,
   PACKET_KEYCODE,
   PACKET_DATA,
+  PACKET_START,
+  PACKET_STOP,
   PACKET_MAX
 } packet_type_e;
 
@@ -106,6 +113,8 @@ typedef struct __attribute__((packed))
   union __attribute__((packed))
   {
     uint8_t data[MAX_PACKET_DATA_SIZE];
+    config_s config;
+    uint8_t keycode;
   };
 } packet_payload_s;
 
@@ -124,9 +133,61 @@ static TaskHandle_t xDSPHandle = NULL;
 static QueueHandle_t xUartTxQueue = NULL;
 static QueueHandle_t xUartRxQueue = NULL;
 
+struct config_entity_s {
+  config_s config;
+  SemaphoreHandle_t lock;
+}; 
+
+static struct config_entity_s global_cfg = {.lock = NULL};
+
 static uint8_t gain = 127;
 static uint8_t uart_data;
 
+// #define FILTER_TAP_NUM  32
+#define DECIMATE_FACTOR 10
+static arm_fir_decimate_instance_q15 di[NUM_ADC_CHANNELS];
+
+// static q15_t filter_taps[FILTER_TAP_NUM] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+
+
+/*
+
+FIR filter designed with
+http://t-filter.appspot.com
+
+sampling frequency: 1000 Hz
+
+fixed point precision: 16 bits
+
+* 0 Hz - 50 Hz
+  gain = 1
+  desired ripple = 5 dB
+  actual ripple = n/a
+
+* 60 Hz - 500 Hz
+  gain = 0
+  desired attenuation = -40 dB
+  actual attenuation = n/a
+
+*/
+
+#define FILTER_TAP_NUM 103
+
+static q15_t filter_taps[FILTER_TAP_NUM] = {
+  372, 491, 411, 704, 700, 903, 900, 993, 933, 905, 760, 618, 401, 190, 
+  -51, -261, -454, -586, -664, -662, -591, -446, -247, -6, 248, 491, 693, 
+  831, 882, 834, 683, 436, 112, -262, -650, -1010, -1298, -1470, -1493, 
+  -1337, -988, -447, 273, 1139, 2110, 3130, 4139, 5074, 5874, 6488, 6873, 
+  7005, 6873, 6488, 5874, 5074, 4139, 3130, 2110, 1139, 273, -447, -988, 
+  -1337, -1493, -1470, -1298, -1010, -650, -262, 112, 436, 683, 834, 882, 
+  831, 693, 491, 248, -6, -247, -446, -591, -662, -664, -586, -454, -261, 
+  -51, 190, 401, 618, 760, 905, 933, 993, 900, 903, 700, 704, 411, 491, 372};
+
+
+static q15_t fir0_state[FILTER_TAP_NUM + ADC_SAMPLES_PER_FRAME - 1];
+static q15_t fir1_state[FILTER_TAP_NUM + ADC_SAMPLES_PER_FRAME - 1];
+static q15_t fir2_state[FILTER_TAP_NUM + ADC_SAMPLES_PER_FRAME - 1];
+static q15_t * firN_state[] = {fir0_state, fir1_state, fir2_state};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -146,6 +207,9 @@ void vUartTxTask( void * pvParameters );
 void vUartRxTask( void * pvParameters );
 void vDSPTask( void * pvParameters );
 static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t payload_size);
+static void init_filters(void);
+static void start_acquire(void);
+static void stop_acquire(void);
 
 /* USER CODE END PFP */
 
@@ -178,16 +242,12 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
   UNSELECT_DP();
-  // HAL_ADC_Start_IT(&hadc1);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
-  HAL_TIM_Base_Start(&htim2);
-
-  DP_Set_Value(DP0|DP1|DP2, gain);
-
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
+  global_cfg.lock = xSemaphoreCreateMutex();
+  configASSERT( global_cfg.lock );
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -207,11 +267,11 @@ int main(void)
   configASSERT( xMainHandle );  
   xTaskCreate( vKeybTask, "KEYB", configMINIMAL_STACK_SIZE*2, NULL, 2, &xKeybHandle );
   configASSERT( xKeybHandle ); 
-  xTaskCreate( vUartTxTask, "UARTTX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartTXHandle );
+  xTaskCreate( vUartTxTask, "UARTTX", configMINIMAL_STACK_SIZE*2, NULL, 2, &xUsartTXHandle );
   configASSERT( xUsartTXHandle );  
   xTaskCreate( vUartRxTask, "UARTRX", configMINIMAL_STACK_SIZE*2, NULL, 3, &xUsartRXHandle );
   configASSERT( xUsartRXHandle );  
-  xTaskCreate( vDSPTask, "DSP", configMINIMAL_STACK_SIZE*2, NULL, 3, &xDSPHandle );
+  xTaskCreate( vDSPTask, "DSP", configMINIMAL_STACK_SIZE*2, NULL, 1, &xDSPHandle );
   configASSERT( xDSPHandle );  
 
   /* USER CODE END RTOS_THREADS */
@@ -451,6 +511,19 @@ void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+static void start_acquire(void)
+{
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
+  HAL_TIM_Base_Start(&htim2);
+}
+
+static void stop_acquire(void)
+{
+  HAL_TIM_Base_Stop(&htim2);
+  HAL_ADC_Stop_DMA(&hadc1);
+}
+
+
 static void DP_Set_Value(uint32_t mask, uint8_t val)
 {
   SELECT_DP(mask);
@@ -523,6 +596,14 @@ static size_t unstuff_packet(packet_s *p, const uint8_t *s, size_t size)
   return (size_t)(out - (uint8_t *)p);
 }
 
+static void init_filters(void)
+{
+  int i;
+  for(i = 0; i < NUM_ADC_CHANNELS; i++)
+    arm_fir_decimate_init_q15(&di[i], FILTER_TAP_NUM, DECIMATE_FACTOR, 
+      filter_taps, firN_state[i], ADC_SAMPLES_PER_FRAME);
+}
+
 void vDSPTask( void * pvParameters )
 {
   typedef struct __attribute__((packed))
@@ -534,24 +615,29 @@ void vDSPTask( void * pvParameters )
                                                 for(k = 0; k < ADC_SAMPLES_PER_FRAME; k++) { \
                                                   to[k] = samples[k].channel[ch]; } \
                                               } while(0)
+  init_filters();
   for( ;; )
   {
     uint16_t *data __attribute__((aligned));
     xTaskNotifyWait( 0, -1, (uint32_t *)&data, portMAX_DELAY);
-    
 
     int i;
+
     for(i = 0; i < NUM_ADC_CHANNELS; i++)
     {
       static uint16_t ch_data[ADC_SAMPLES_PER_FRAME];
+      static uint16_t dec_data[ADC_SAMPLES_PER_FRAME/DECIMATE_FACTOR];
+
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+
       EXTRACT_CHANNEL_DATA(data, ch_data, i);
+      arm_fir_decimate_fast_q15(&di[i], (q15_t *)ch_data, (q15_t *)dec_data, ADC_SAMPLES_PER_FRAME);
 
-
-
-      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+      taskYIELD();
+      // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
 
     }
-
   }
 }
 
@@ -687,32 +773,41 @@ void vUartTxTask( void * pvParameters )
         HAL_UART_Transmit_DMA(&huart1, b, tx_size);
       ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
       vPortFree(b);
-      HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+      // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
     }
   }
 }
 
+static void apply_config(void)
+{
+  xSemaphoreTake(global_cfg.lock, portMAX_DELAY);
+  DP_Set_Value(DP0|DP1|DP2, global_cfg.config.gain);
+  xSemaphoreGive(global_cfg.lock);
+}
+
 void vMainTask( void * pvParameters )
 {
-  
+  enum {
+    STATE_WAIT_HANDSHAKE = 0,
+    STATE_STOP,
+    STATE_RUN,
+    STATE_MAX
+  } state = STATE_WAIT_HANDSHAKE;
+
   for( ;; )
   {
     uint32_t events = 0;
 
-    if(xTaskNotifyWait( 0, -1, &events, pdMS_TO_TICKS(10)) == pdTRUE)
+    if(xTaskNotifyWait( 0, -1, &events, portMAX_DELAY) == pdTRUE)
     {
       if(events & (1 << KEY_START))
       {
-        if(gain) {
-          DP_Set_Value(DP0|DP1|DP2, --gain);
-        }
+        start_acquire();
       }
-      // if(events & (1 << KEY_STOP))
-      // {
-      //   if(gain < 127) {
-      //     DP_Set_Value(DP0|DP1|DP2, ++gain);
-      //   }
-      // }
+      if(events & (1 << KEY_STOP))
+      {
+        stop_acquire();
+      }
     }
   }
 }
@@ -744,9 +839,9 @@ void vKeybTask( void * pvParameters )
             uint8_t keycode = (1 << i);
             keys[i].was_released = pdFALSE;
 
-            uint8_t buf[] = {0xab, 0xab, 0x01, 0xba, 0xad, 0xba};
-            // xTaskNotify(xMainHandle, (1 << i), eSetBits);
-            send_packet(PACKET_KEYCODE, buf, sizeof(buf));
+            // uint8_t buf[] = {0xab, 0xab, 0x01, 0xba, 0xad, 0xba};
+            xTaskNotify(xMainHandle, (1 << i), eSetBits);
+            // send_packet(PACKET_KEYCODE, &keycode, sizeof(keycode));
             
           }
           break;

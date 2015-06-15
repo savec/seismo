@@ -99,7 +99,8 @@ APPLICATION_SRC =       $(PROJECT_SRC)/main.c \
 				        $(PROJECT_SRC)/stm32f4xx_hal_msp.c  \
 				        $(PROJECT_SRC)/system_stm32f4xx.c 
 
-MATH_SRC		=		$(DSP_SRC)/FilteringFunctions/arm_fir_decimate_fast_q15.c
+MATH_SRC		=		$(DSP_SRC)/FilteringFunctions/arm_fir_decimate_fast_q15.c \
+						$(DSP_SRC)/FilteringFunctions/arm_fir_decimate_init_q15.c
 
 # STARTUP = $(PROJECT_SRC)/startup_stm32f4xx.s
 STARTUP = $(PROJECT_SRC)/startup_stm32f407xx.s
