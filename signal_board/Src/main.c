@@ -101,6 +101,15 @@ typedef struct __attribute__((packed))
   uint8_t gain;
 } config_s;
 
+#define DECIMATE_FACTOR 10
+
+typedef struct __attribute__((packed))
+{
+  uint8_t channel;
+  uint16_t data[ADC_SAMPLES_PER_FRAME/DECIMATE_FACTOR];
+} data_s;
+
+
 typedef enum {
   PACKET_HANDSHAKE = 0,
   PACKET_KEYCODE,
@@ -125,6 +134,7 @@ typedef struct __attribute__((packed))
     uint8_t data[MAX_PACKET_DATA_SIZE];
     config_s config;
     uint8_t keycode;
+    data_s ch_data;
   };
 } packet_payload_s;
 
@@ -153,7 +163,7 @@ static struct config_entity_s global_cfg = {.lock = NULL};
 static uint8_t uart_data;
 
 // #define FILTER_TAP_NUM  32
-#define DECIMATE_FACTOR 10
+
 static arm_fir_decimate_instance_q15 di[NUM_ADC_CHANNELS];
 
 // static q15_t filter_taps[FILTER_TAP_NUM] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
@@ -640,15 +650,17 @@ void vDSPTask( void * pvParameters )
     {
       static uint16_t ch_data[ADC_SAMPLES_PER_FRAME];
       static uint16_t dec_data[ADC_SAMPLES_PER_FRAME/DECIMATE_FACTOR];
+      static data_s packet_data;
 
       // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
 
       EXTRACT_CHANNEL_DATA(data, ch_data, i);
       arm_fir_decimate_fast_q15(&di[i], (q15_t *)ch_data, (q15_t *)dec_data, ADC_SAMPLES_PER_FRAME);
 
-      // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+      memcpy(packet_data.data, dec_data, sizeof(dec_data));
+      packet_data.channel = i;
+      send_packet(PACKET_DATA, &packet_data, sizeof(packet_data));
       taskYIELD();
-      // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
 
     }
   }
@@ -858,6 +870,7 @@ void vMainTask( void * pvParameters )
       if(event == EVENT_STOP)
       {
         stop_acquire();
+        vTaskDelay(pdMS_TO_TICKS(10));
         STATUS_LED_ON();
         state = STATE_STOP;
       }
