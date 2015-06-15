@@ -72,6 +72,16 @@ static uint16_t adc_data[ADC_DATA_BUFFER_SIZE] __attribute__ ((aligned));
 #define START_BYTE  0xAB
 #define STOP_BYTE  0xBA
 
+#define STATUS_LED_TGL() HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9)
+#define STATUS_LED_ON() HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+#define STATUS_LED_OFF()  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+
+typedef enum {
+  EVENT_HANDSHAKE,
+  EVENT_START,
+  EVENT_STOP,
+  MAX_EVENT
+} extern_event_e;
 
 typedef enum {
   KEY_START = 0,
@@ -140,7 +150,6 @@ struct config_entity_s {
 
 static struct config_entity_s global_cfg = {.lock = NULL};
 
-static uint8_t gain = 127;
 static uint8_t uart_data;
 
 // #define FILTER_TAP_NUM  32
@@ -210,6 +219,8 @@ static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t p
 static void init_filters(void);
 static void start_acquire(void);
 static void stop_acquire(void);
+static void set_config(config_s *cfg);
+static void apply_config(void);
 
 /* USER CODE END PFP */
 
@@ -242,6 +253,7 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
   UNSELECT_DP();
+  STATUS_LED_OFF();
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -513,6 +525,7 @@ void MX_GPIO_Init(void)
 
 static void start_acquire(void)
 {
+  init_filters();
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_data, NUM_ELEMENTS(adc_data));
   HAL_TIM_Base_Start(&htim2);
 }
@@ -541,7 +554,7 @@ static BaseType_t send_packet(packet_type_e type, const void *payload, uint8_t p
   b->h.type = type;
   b->h.payload_size = payload_size;
 
-  if(payload_size)
+  if(payload && payload_size)
     memcpy(b->p.data, payload, payload_size);
 
   return xQueueSend( xUartTxQueue, &b, ( TickType_t ) 0 );
@@ -615,12 +628,12 @@ void vDSPTask( void * pvParameters )
                                                 for(k = 0; k < ADC_SAMPLES_PER_FRAME; k++) { \
                                                   to[k] = samples[k].channel[ch]; } \
                                               } while(0)
-  init_filters();
+  
   for( ;; )
   {
     uint16_t *data __attribute__((aligned));
     xTaskNotifyWait( 0, -1, (uint32_t *)&data, portMAX_DELAY);
-
+    STATUS_LED_TGL();
     int i;
 
     for(i = 0; i < NUM_ADC_CHANNELS; i++)
@@ -628,12 +641,12 @@ void vDSPTask( void * pvParameters )
       static uint16_t ch_data[ADC_SAMPLES_PER_FRAME];
       static uint16_t dec_data[ADC_SAMPLES_PER_FRAME/DECIMATE_FACTOR];
 
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+      // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
 
       EXTRACT_CHANNEL_DATA(data, ch_data, i);
       arm_fir_decimate_fast_q15(&di[i], (q15_t *)ch_data, (q15_t *)dec_data, ADC_SAMPLES_PER_FRAME);
 
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+      // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
       taskYIELD();
       // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
 
@@ -648,7 +661,24 @@ static void process_packet(const uint8_t *p, size_t size)
 
   if(sz)
   {
-
+    switch(packet.h.type)
+    {
+    case PACKET_HANDSHAKE:
+    {
+      config_s cfg = {.gain = packet.p.config.gain};
+      set_config(&cfg);
+      xTaskNotify(xMainHandle, EVENT_HANDSHAKE, eSetValueWithOverwrite);
+    }
+    break;
+    case PACKET_START:
+      xTaskNotify(xMainHandle, EVENT_START, eSetValueWithOverwrite);
+    break;
+    case PACKET_STOP:
+      xTaskNotify(xMainHandle, EVENT_STOP, eSetValueWithOverwrite);
+    break;
+    default:
+    ;
+    }
   }
 }
 
@@ -773,9 +803,15 @@ void vUartTxTask( void * pvParameters )
         HAL_UART_Transmit_DMA(&huart1, b, tx_size);
       ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
       vPortFree(b);
-      // HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
     }
   }
+}
+
+static void set_config(config_s *cfg)
+{
+  xSemaphoreTake(global_cfg.lock, portMAX_DELAY);
+  global_cfg.config = *cfg;
+  xSemaphoreGive(global_cfg.lock);
 }
 
 static void apply_config(void)
@@ -796,18 +832,38 @@ void vMainTask( void * pvParameters )
 
   for( ;; )
   {
-    uint32_t events = 0;
+    uint32_t event = 0;
 
-    if(xTaskNotifyWait( 0, -1, &events, portMAX_DELAY) == pdTRUE)
+    xTaskNotifyWait( 0, -1, &event, portMAX_DELAY);
+
+    switch(state)
     {
-      if(events & (1 << KEY_START))
+    case STATE_WAIT_HANDSHAKE:
+      if(event == EVENT_HANDSHAKE)
+      {
+        apply_config();
+        STATUS_LED_ON();
+        send_packet(PACKET_HANDSHAKE, NULL, 0);
+        state = STATE_STOP;
+      }
+      break;
+    case STATE_STOP:
+      if(event == EVENT_START)
       {
         start_acquire();
+        state = STATE_RUN;
       }
-      if(events & (1 << KEY_STOP))
+      break;
+    case STATE_RUN:
+      if(event == EVENT_STOP)
       {
         stop_acquire();
+        STATUS_LED_ON();
+        state = STATE_STOP;
       }
+      break;
+    default:
+      ;      
     }
   }
 }
@@ -838,11 +894,7 @@ void vKeybTask( void * pvParameters )
           {
             uint8_t keycode = (1 << i);
             keys[i].was_released = pdFALSE;
-
-            // uint8_t buf[] = {0xab, 0xab, 0x01, 0xba, 0xad, 0xba};
-            xTaskNotify(xMainHandle, (1 << i), eSetBits);
-            // send_packet(PACKET_KEYCODE, &keycode, sizeof(keycode));
-            
+            send_packet(PACKET_KEYCODE, &keycode, sizeof(keycode));
           }
           break;
       }
